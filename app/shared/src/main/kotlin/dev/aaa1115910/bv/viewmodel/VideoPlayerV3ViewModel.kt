@@ -161,6 +161,7 @@ class VideoPlayerV3ViewModel(
         seasonId?.let { this.seasonId = it }
         viewModelScope.launch(Dispatchers.Default) {
             addLogs("加载视频中")
+            val lastPlayEnabledSubtitle = currentSubtitleId != -1L
             // Only release and clear danmaku when loading a different video. Seeking, rewind, and
             // fast-forward keep the same DanmakuPlayer and data so seekTo(position) can continue
             // to display danmaku correctly after timeline jumps.
@@ -174,7 +175,6 @@ class VideoPlayerV3ViewModel(
                 addLogs("av$avid，cid:$cid")
             }
 
-            val lastPlayEnabledSubtitle = currentSubtitleId != -1L
             if (lastPlayEnabledSubtitle) {
                 logger.info { "Subtitle is enabled, next video will enable subtitle automatic" }
             }
