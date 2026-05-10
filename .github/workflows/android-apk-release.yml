@@ -4,16 +4,22 @@ on:
   push:
     branches:
       - develop
-      - fix/tv-low-memory-qr-player
     tags:
       - "v*.*.*"
   pull_request:
+  release:
+    types:
+      - published
   workflow_dispatch:
     inputs:
       build_tasks:
         description: "Gradle task(s) to run"
         required: false
         default: ":app:assembleDefaultRelease :app:assembleLiteRelease"
+      release_tag:
+        description: "Existing release tag to upload APKs to, for example v0.3.0-tv-low-memory-1. Leave empty to only upload workflow artifacts."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -24,9 +30,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Resolve checkout ref
+        id: ref
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            echo "ref=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.release_tag }}" ]]; then
+            echo "ref=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
+          ref: ${{ steps.ref.outputs.ref }}
           fetch-depth: 0
           submodules: recursive
 
@@ -99,9 +118,10 @@ jobs:
           path: release-apks/*.apk
           if-no-files-found: error
 
-      - name: Create GitHub Release and upload APKs
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload APKs to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name || inputs.release_tag || github.ref_name }}
           files: release-apks/*.apk
           generate_release_notes: true
