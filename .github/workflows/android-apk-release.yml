@@ -28,6 +28,14 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify submodules
+        run: |
+          git submodule status --recursive
+          test -f libs/ffmpegDecoder/build.gradle.kts || test -f libs/ffmpegDecoder/build.gradle
+          test -f libs/av1Decoder/build.gradle.kts || test -f libs/av1Decoder/build.gradle
+          test -f libs/libVLC/build.gradle.kts || test -f libs/libVLC/build.gradle
 
       - name: Set up JDK 21
         uses: actions/setup-java@v5
