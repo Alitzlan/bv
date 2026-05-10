@@ -43,8 +43,10 @@ class AppQrLoginViewModel(
             runCatching {
                 withContext(Dispatchers.Main) { state = QrLoginState.RequestingQRCode }
                 val qrLoginData = loginRepository.requestAppQrLogin()
-                loginUrl = qrLoginData.url
-                key = qrLoginData.key
+                withContext(Dispatchers.Main) {
+                    loginUrl = qrLoginData.url
+                    key = qrLoginData.key
+                }
                 logger.fInfo { "Get login request code url" }
                 logger.info { qrLoginData.url }
                 runCatching { timer.cancel() }
@@ -65,6 +67,11 @@ class AppQrLoginViewModel(
     }
 
     fun cancelCheckLoginResultTimer() {
+        timer.cancel()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
         timer.cancel()
     }
 

@@ -69,6 +69,14 @@ class ExoMediaPlayer(
 
     @OptIn(UnstableApi::class)
     override fun playUrl(videoUrl: String?, audioUrl: String?) {
+        // Switching streams can leave decoder/native buffers alive longer on low-memory TV boxes.
+        // Stop and clear the previous source before wiring the next video/audio pair.
+        mPlayer?.run {
+            stop()
+            clearMediaItems()
+        }
+        mMediaSource = null
+
         val videoMediaSource = videoUrl?.let {
             ProgressiveMediaSource.Factory(dataSourceFactory)
                 .createMediaSource(MediaItem.fromUri(it))
@@ -101,7 +109,11 @@ class ExoMediaPlayer(
     }
 
     override fun reset() {
-        TODO("Not yet implemented")
+        mPlayer?.run {
+            stop()
+            clearMediaItems()
+        }
+        mMediaSource = null
     }
 
     override val isPlaying: Boolean
@@ -112,7 +124,14 @@ class ExoMediaPlayer(
     }
 
     override fun release() {
-        mPlayer?.release()
+        val player = mPlayer ?: return
+        runCatching { player.removeListener(this) }
+        runCatching { player.stop() }
+        runCatching { player.clearMediaItems() }
+        runCatching { player.release() }
+        mPlayer = null
+        mMediaSource = null
+        mPlayerEventListener = null
     }
 
     override val currentPosition: Long

@@ -1,0 +1,107 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - develop
+      - fix/tv-low-memory-qr-player
+    tags:
+      - "v*.*.*"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_tasks:
+        description: "Gradle task(s) to run"
+        required: false
+        default: ":app:assembleDefaultRelease :app:assembleLiteRelease"
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Verify submodules
+        run: |
+          git submodule status --recursive
+          test -f libs/ffmpegDecoder/build.gradle.kts || test -f libs/ffmpegDecoder/build.gradle
+          test -f libs/av1Decoder/build.gradle.kts || test -f libs/av1Decoder/build.gradle
+          test -f libs/libVLC/build.gradle.kts || test -f libs/libVLC/build.gradle
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Configure release signing when secrets are available
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [[ -n "${ANDROID_KEYSTORE_BASE64}" && -n "${ANDROID_KEYSTORE_PASSWORD}" && -n "${ANDROID_KEY_ALIAS}" && -n "${ANDROID_KEY_PASSWORD}" ]]; then
+            mkdir -p app/keystore
+            echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > app/keystore/release.jks
+            cat > signing.properties <<EOF
+          keystore.path=app/keystore/release.jks
+          keystore.pwd=${ANDROID_KEYSTORE_PASSWORD}
+          keystore.alias=${ANDROID_KEY_ALIAS}
+          keystore.alias_pwd=${ANDROID_KEY_PASSWORD}
+          EOF
+            echo "Release signing configured."
+          else
+            echo "Signing secrets are not fully configured; release APKs may be unsigned."
+          fi
+
+      - name: Build release APKs
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            ./gradlew ${{ inputs.build_tasks }}
+          else
+            ./gradlew :app:assembleDefaultRelease :app:assembleLiteRelease
+          fi
+
+      - name: Collect APKs
+        id: collect_apks
+        shell: bash
+        run: |
+          mkdir -p release-apks
+          find app/build/outputs/apk -type f -name "*.apk" -print -exec cp {} release-apks/ \;
+          if ! ls release-apks/*.apk >/dev/null 2>&1; then
+            echo "No APK files were produced."
+            exit 1
+          fi
+          ls -lh release-apks
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks
+          path: release-apks/*.apk
+          if-no-files-found: error
+
+      - name: Create GitHub Release and upload APKs
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-apks/*.apk
+          generate_release_notes: true
