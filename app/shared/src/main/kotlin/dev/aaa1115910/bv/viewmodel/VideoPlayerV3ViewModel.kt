@@ -130,7 +130,17 @@ class VideoPlayerV3ViewModel(
     private var currentEpid = 0
 
     private suspend fun releaseDanmakuPlayer() = withContext(Dispatchers.Main) {
-        danmakuPlayer?.release()
+        runCatching { danmakuPlayer?.pause() }
+        runCatching { danmakuPlayer?.release() }
+        danmakuPlayer = null
+    }
+
+    private suspend fun clearPlaybackAuxiliaryData() = withContext(Dispatchers.Main) {
+        danmakuData.clear()
+        danmakuMasks.clear()
+        videoShot = null
+        currentSubtitleData.clear()
+        currentSubtitleId = -1L
     }
 
     suspend fun initDanmakuPlayer() = withContext(Dispatchers.Main) {
@@ -151,7 +161,11 @@ class VideoPlayerV3ViewModel(
         seasonId?.let { this.seasonId = it }
         viewModelScope.launch(Dispatchers.Default) {
             addLogs("加载视频中")
+            // Only release and clear danmaku when loading a different video. Seeking, rewind, and
+            // fast-forward keep the same DanmakuPlayer and data so seekTo(position) can continue
+            // to display danmaku correctly after timeline jumps.
             releaseDanmakuPlayer()
+            clearPlaybackAuxiliaryData()
             initDanmakuPlayer()
             addLogs("初始化弹幕引擎")
             if (epid != null || seasonId != null) {
@@ -429,7 +443,9 @@ class VideoPlayerV3ViewModel(
                 )
             }
             danmakuData.swapListWithMainContext(danmakuItemDataList)
-            danmakuPlayer?.updateData(danmakuData)
+            withContext(Dispatchers.Main) {
+                danmakuPlayer?.updateData(danmakuData)
+            }
         }.onFailure {
             addLogs("加载弹幕失败：${it.localizedMessage}")
             logger.fWarn { "Load danmaku filed: ${it.stackTraceToString()}" }
@@ -693,5 +709,19 @@ class VideoPlayerV3ViewModel(
                 continuePlayNext = true
             )
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        runCatching { videoPlayer?.pause() }
+        runCatching { videoPlayer?.release() }
+        runCatching { danmakuPlayer?.pause() }
+        runCatching { danmakuPlayer?.release() }
+        videoPlayer = null
+        danmakuPlayer = null
+        danmakuData.clear()
+        danmakuMasks.clear()
+        videoShot = null
+        currentSubtitleData.clear()
     }
 }
