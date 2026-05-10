@@ -26,9 +26,9 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import dev.aaa1115910.biliapi.entity.login.QrLoginState
 import dev.aaa1115910.bv.R
+import dev.aaa1115910.bv.component.SimpleQrCode
 import dev.aaa1115910.bv.util.toast
 import dev.aaa1115910.bv.viewmodel.login.AppQrLoginViewModel
-import dev.aaa1115910.m3qrcode.MaterialShapeQr
 import org.koin.androidx.compose.koinViewModel
 
 @Composable
@@ -82,9 +82,10 @@ fun AppQRLoginContent(
                     visible = listOf(QrLoginState.WaitingForScan, QrLoginState.WaitingForConfirm)
                         .contains(appQrLoginViewModel.state)
                 ) {
-                    MaterialShapeQr(
+                    SimpleQrCode(
                         modifier = Modifier.size(280.dp),
-                        content = appQrLoginViewModel.loginUrl
+                        content = appQrLoginViewModel.loginUrl,
+                        sizePx = 360
                     )
                 }
 
