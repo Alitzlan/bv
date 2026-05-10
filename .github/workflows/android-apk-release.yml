@@ -68,7 +68,7 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
-      - name: Configure release signing when secrets are available
+      - name: Check release signing secrets
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -76,19 +76,35 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [[ -n "${ANDROID_KEYSTORE_BASE64}" && -n "${ANDROID_KEYSTORE_PASSWORD}" && -n "${ANDROID_KEY_ALIAS}" && -n "${ANDROID_KEY_PASSWORD}" ]]; then
-            mkdir -p app/keystore
-            echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > app/keystore/release.jks
-            cat > signing.properties <<EOF
+          missing=0
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required signing secret: ${name}"
+              missing=1
+            fi
+          done
+          if [[ "${missing}" -ne 0 ]]; then
+            echo "Release APKs must be signed. Add the missing secrets under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Configure release signing
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          mkdir -p app/keystore
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > app/keystore/release.jks
+          cat > signing.properties <<EOF
           keystore.path=app/keystore/release.jks
           keystore.pwd=${ANDROID_KEYSTORE_PASSWORD}
           keystore.alias=${ANDROID_KEY_ALIAS}
           keystore.alias_pwd=${ANDROID_KEY_PASSWORD}
           EOF
-            echo "Release signing configured."
-          else
-            echo "Signing secrets are not fully configured; release APKs may be unsigned."
-          fi
+          echo "Release signing configured."
 
       - name: Build release APKs
         shell: bash
@@ -110,6 +126,14 @@ jobs:
             exit 1
           fi
           ls -lh release-apks
+
+      - name: Verify APK signatures
+        shell: bash
+        run: |
+          for apk in release-apks/*.apk; do
+            echo "Verifying ${apk}"
+            ${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools | sort -V | tail -n 1)/apksigner verify --print-certs "${apk}"
+          done
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
