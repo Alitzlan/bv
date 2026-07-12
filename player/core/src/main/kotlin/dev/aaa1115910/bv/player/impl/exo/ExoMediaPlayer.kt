@@ -2,6 +2,9 @@ package dev.aaa1115910.bv.player.impl.exo
 
 import android.content.Context
 import androidx.annotation.OptIn
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -24,8 +27,27 @@ class ExoMediaPlayer(
     private val context: Context,
     private val options: VideoPlayerOptions
 ) : AbstractVideoPlayer(), Player.Listener {
+    companion object {
+        private const val MAX_AUTOMATIC_RECOVERY_ATTEMPTS = 2
+        private const val RECOVERY_REWIND_MS = 3_000L
+    }
+
     var mPlayer: ExoPlayer? = null
+        private set
+
+    /**
+     * Incremented whenever the internal ExoPlayer instance is replaced.
+     * Compose reads this value to detach the old PlayerView and bind the new player immediately.
+     */
+    var playerGeneration by mutableIntStateOf(0)
+        private set
+
     protected var mMediaSource: MediaSource? = null
+
+    private var currentVideoUrl: String? = null
+    private var currentAudioUrl: String? = null
+    private var automaticRecoveryAttempts = 0
+    private var isRecovering = false
 
     @OptIn(UnstableApi::class)
     private val dataSourceFactory =
@@ -40,6 +62,8 @@ class ExoMediaPlayer(
 
     @OptIn(UnstableApi::class)
     override fun initPlayer() {
+        if (mPlayer != null) return
+
         val renderersFactory = DefaultRenderersFactory(context).apply {
             setExtensionRendererMode(
                 when (options.enableFfmpegAudioRenderer) {
@@ -54,12 +78,12 @@ class ExoMediaPlayer(
             .setSeekForwardIncrementMs(1000 * 10)
             .setSeekBackIncrementMs(1000 * 5)
             .build()
-
-        initListener()
-    }
-
-    private fun initListener() {
-        mPlayer?.addListener(this)
+            .apply {
+                // Every selected video/episode should start automatically after prepare().
+                playWhenReady = true
+                addListener(this@ExoMediaPlayer)
+            }
+        playerGeneration++
     }
 
     @OptIn(UnstableApi::class)
@@ -69,14 +93,28 @@ class ExoMediaPlayer(
 
     @OptIn(UnstableApi::class)
     override fun playUrl(videoUrl: String?, audioUrl: String?) {
-        // Switching streams can leave decoder/native buffers alive longer on low-memory TV boxes.
-        // Stop and clear the previous source before wiring the next video/audio pair.
-        mPlayer?.run {
-            stop()
-            clearMediaItems()
-        }
-        mMediaSource = null
+        val replacingExistingStream =
+            currentVideoUrl != null || currentAudioUrl != null || mMediaSource != null
 
+        currentVideoUrl = videoUrl
+        currentAudioUrl = audioUrl
+        automaticRecoveryAttempts = 0
+        isRecovering = false
+
+        // A full ExoPlayer recreation is intentional here. Some Android TV MediaCodec
+        // implementations retain native decoder and Surface buffers after stop/clearMediaItems,
+        // eventually causing severe lag after many videos. Releasing between streams returns these
+        // resources without requiring the user to force-stop the whole app.
+        if (replacingExistingStream) {
+            recreateInternalPlayer()
+        } else if (mPlayer == null) {
+            initPlayer()
+        }
+
+        mMediaSource = buildMediaSource(videoUrl, audioUrl)
+    }
+
+    private fun buildMediaSource(videoUrl: String?, audioUrl: String?): MediaSource {
         val videoMediaSource = videoUrl?.let {
             ProgressiveMediaSource.Factory(dataSourceFactory)
                 .createMediaSource(MediaItem.fromUri(it))
@@ -87,13 +125,16 @@ class ExoMediaPlayer(
         }
 
         val mediaSources = listOfNotNull(videoMediaSource, audioMediaSource)
-        mMediaSource = MergingMediaSource(*mediaSources.toTypedArray())
+        require(mediaSources.isNotEmpty()) { "At least one media URL is required" }
+        return MergingMediaSource(*mediaSources.toTypedArray())
     }
 
     @OptIn(UnstableApi::class)
     override fun prepare() {
-        mPlayer?.setMediaSource(mMediaSource!!)
-        mPlayer?.prepare()
+        val player = checkNotNull(mPlayer) { "Player has been released" }
+        val mediaSource = checkNotNull(mMediaSource) { "Media source has not been configured" }
+        player.setMediaSource(mediaSource)
+        player.prepare()
     }
 
     override fun start() {
@@ -109,11 +150,11 @@ class ExoMediaPlayer(
     }
 
     override fun reset() {
-        mPlayer?.run {
-            stop()
-            clearMediaItems()
-        }
-        mMediaSource = null
+        currentVideoUrl = null
+        currentAudioUrl = null
+        automaticRecoveryAttempts = 0
+        isRecovering = false
+        recreateInternalPlayer()
     }
 
     override val isPlaying: Boolean
@@ -124,14 +165,29 @@ class ExoMediaPlayer(
     }
 
     override fun release() {
-        val player = mPlayer ?: return
-        runCatching { player.removeListener(this) }
-        runCatching { player.stop() }
-        runCatching { player.clearMediaItems() }
-        runCatching { player.release() }
+        releaseInternalPlayer()
+        currentVideoUrl = null
+        currentAudioUrl = null
+        automaticRecoveryAttempts = 0
+        isRecovering = false
+        mPlayerEventListener = null
+    }
+
+    private fun recreateInternalPlayer() {
+        releaseInternalPlayer()
+        initPlayer()
+    }
+
+    private fun releaseInternalPlayer() {
+        val player = mPlayer
         mPlayer = null
         mMediaSource = null
-        mPlayerEventListener = null
+        if (player != null) {
+            runCatching { player.removeListener(this) }
+            runCatching { player.stop() }
+            runCatching { player.clearMediaItems() }
+            runCatching { player.release() }
+        }
     }
 
     override val currentPosition: Long
@@ -157,13 +213,17 @@ class ExoMediaPlayer(
         when (playbackState) {
             Player.STATE_IDLE -> mPlayerEventListener?.onIdle()
             Player.STATE_BUFFERING -> mPlayerEventListener?.onBuffering()
-            Player.STATE_READY -> mPlayerEventListener?.onReady()
+            Player.STATE_READY -> {
+                isRecovering = false
+                mPlayerEventListener?.onReady()
+            }
             Player.STATE_ENDED -> mPlayerEventListener?.onEnd()
         }
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
         if (isPlaying) {
+            isRecovering = false
             mPlayerEventListener?.onPlay()
         } else {
             mPlayerEventListener?.onPause()
@@ -188,6 +248,7 @@ class ExoMediaPlayer(
                 audio: ${mPlayer?.audioFormat?.bitrate ?: 0} kbps
                 video codec: ${mPlayer?.videoFormat?.sampleMimeType ?: "null"}
                 audio codec: ${mPlayer?.audioFormat?.sampleMimeType ?: "null"} (${getAudioRendererName()})
+                recovery attempts: $automaticRecoveryAttempts / $MAX_AUTOMATIC_RECOVERY_ATTEMPTS
             """.trimIndent()
         }
 
@@ -208,6 +269,64 @@ class ExoMediaPlayer(
         get() = mPlayer?.videoSize?.height ?: 0
 
     override fun onPlayerError(error: PlaybackException) {
+        if (isInvalidNalLengthError(error) && tryRecoverFromMalformedNal()) {
+            return
+        }
         mPlayerEventListener?.onError(error)
+    }
+
+    private fun isInvalidNalLengthError(error: PlaybackException): Boolean {
+        var throwable: Throwable? = error
+        while (throwable != null) {
+            val message = throwable.message.orEmpty()
+            if (message.contains("Invalid NAL length", ignoreCase = true) ||
+                message.contains("contentIsMalformed=true", ignoreCase = true)
+            ) {
+                return true
+            }
+            throwable = throwable.cause
+        }
+        return false
+    }
+
+    private fun tryRecoverFromMalformedNal(): Boolean {
+        if (isRecovering || automaticRecoveryAttempts >= MAX_AUTOMATIC_RECOVERY_ATTEMPTS) {
+            return false
+        }
+        val videoUrl = currentVideoUrl
+        val audioUrl = currentAudioUrl
+        if (videoUrl == null && audioUrl == null) return false
+
+        automaticRecoveryAttempts++
+        isRecovering = true
+        mPlayerEventListener?.onBuffering()
+
+        val resumePosition =
+            ((mPlayer?.currentPosition ?: 0L) - RECOVERY_REWIND_MS).coerceAtLeast(0L)
+        val hardReset = automaticRecoveryAttempts == MAX_AUTOMATIC_RECOVERY_ATTEMPTS
+
+        return runCatching {
+            if (hardReset) {
+                // The first retry rebuilds only the extractor/media source. If malformed data leaves
+                // the decoder in a bad state, the second retry also recreates ExoPlayer/MediaCodec.
+                recreateInternalPlayer()
+            } else {
+                mPlayer?.run {
+                    stop()
+                    clearMediaItems()
+                }
+            }
+
+            val source = buildMediaSource(videoUrl, audioUrl)
+            mMediaSource = source
+            checkNotNull(mPlayer).run {
+                setMediaSource(source)
+                seekTo(resumePosition)
+                prepare()
+                playWhenReady = true
+            }
+        }.isSuccess.also { recovered ->
+            if (!recovered) isRecovering = false
+        }
     }
 }
