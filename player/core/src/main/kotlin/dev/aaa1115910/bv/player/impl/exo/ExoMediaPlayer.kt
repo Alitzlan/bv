@@ -290,7 +290,7 @@ class ExoMediaPlayer(
     }
 
     private fun tryRecoverFromMalformedNal(): Boolean {
-        if (isRecovering || automaticRecoveryAttempts >= MAX_AUTOMATIC_RECOVERY_ATTEMPTS) {
+        if (automaticRecoveryAttempts >= MAX_AUTOMATIC_RECOVERY_ATTEMPTS) {
             return false
         }
         val videoUrl = currentVideoUrl
