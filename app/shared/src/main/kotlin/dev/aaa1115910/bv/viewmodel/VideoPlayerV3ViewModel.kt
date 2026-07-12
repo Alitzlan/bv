@@ -51,7 +51,9 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.android.annotation.KoinViewModel
@@ -63,6 +65,9 @@ class VideoPlayerV3ViewModel(
     private val videoPlayRepository: VideoPlayRepository,
 ) : ViewModel() {
     private val logger = KotlinLogging.logger { }
+    private val subtitleHttpClient = HttpClient(OkHttp)
+    private var loadVideoJob: Job? = null
+    private var subtitleJob: Job? = null
 
     var videoPlayer: AbstractVideoPlayer? by mutableStateOf(null)
     var danmakuPlayer: DanmakuPlayer? by mutableStateOf(null)
@@ -154,12 +159,15 @@ class VideoPlayerV3ViewModel(
         seasonId: Int? = null,
         continuePlayNext: Boolean = false
     ) {
+        loadVideoJob?.cancel()
+        subtitleJob?.cancel()
+
         currentAid = avid
         currentCid = cid
         currentEpid = epid ?: 0
         epid?.let { this.epid = it }
         seasonId?.let { this.seasonId = it }
-        viewModelScope.launch(Dispatchers.Default) {
+        loadVideoJob = viewModelScope.launch(Dispatchers.Default) {
             addLogs("加载视频中")
             val lastPlayEnabledSubtitle = currentSubtitleId != -1L
             // Only release and clear danmaku when loading a different video. Seeking, rewind, and
@@ -303,6 +311,7 @@ class VideoPlayerV3ViewModel(
             playQuality(qn = currentQuality.code, codec = currentVideoCodec)
 
         }.onFailure {
+            if (it is CancellationException) throw it
             addLogs("加载视频地址失败：${it.localizedMessage}")
             errorMessage = it.localizedMessage ?: "Unknown error"
             loadState = RequestState.Failed
@@ -447,6 +456,7 @@ class VideoPlayerV3ViewModel(
                 danmakuPlayer?.updateData(danmakuData)
             }
         }.onFailure {
+            if (it is CancellationException) throw it
             addLogs("加载弹幕失败：${it.localizedMessage}")
             logger.fWarn { "Load danmaku filed: ${it.stackTraceToString()}" }
         }.onSuccess {
@@ -484,6 +494,7 @@ class VideoPlayerV3ViewModel(
             addLogs("获取到 ${subtitleData.size} 条字幕: ${subtitleData.map { it.langDoc }}")
             logger.fInfo { "Update subtitle size: ${subtitleData.size}" }
         }.onFailure {
+            if (it is CancellationException) throw it
             addLogs("获取字幕失败：${it.localizedMessage}")
             logger.fWarn { "Update subtitle failed: ${it.stackTraceToString()}" }
         }
@@ -546,12 +557,14 @@ class VideoPlayerV3ViewModel(
         }.onSuccess {
             logger.info { "Send heartbeat success" }
         }.onFailure {
+            if (it is CancellationException) throw it
             logger.warn { "Send heartbeat failed: ${it.stackTraceToString()}" }
         }
     }
 
     fun loadSubtitle(id: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        subtitleJob?.cancel()
+        subtitleJob = viewModelScope.launch(Dispatchers.IO) {
             if (id == -1L) {
                 withContext(Dispatchers.Main) {
                     currentSubtitleData.clear()
@@ -564,14 +577,14 @@ class VideoPlayerV3ViewModel(
                 val subtitle = availableSubtitle.find { it.id == id } ?: return@runCatching
                 subtitleName = subtitle.langDoc
                 logger.info { "Subtitle url: ${subtitle.url}" }
-                val client = HttpClient(OkHttp)
-                val responseText = client.get(subtitle.url).bodyAsText()
+                val responseText = subtitleHttpClient.get(subtitle.url).bodyAsText()
                 val subtitleData = SubtitleParser.fromBccString(responseText)
                 withContext(Dispatchers.Main) {
                     currentSubtitleId = id
                     currentSubtitleData.swapList(subtitleData)
                 }
             }.onFailure {
+                if (it is CancellationException) throw it
                 logger.fInfo { "Load subtitle failed: ${it.stackTraceToString()}" }
                 addLogs("加载字幕 $subtitleName 失败: ${it.localizedMessage}")
             }.onSuccess {
@@ -626,6 +639,7 @@ class VideoPlayerV3ViewModel(
             danmakuMasks.swapListWithMainContext(masks)
             logger.fInfo { "Load danmaku mask size: ${danmakuMasks.size}" }
         }.onFailure {
+            if (it is CancellationException) throw it
             logger.fWarn { "Load danmaku mask failed: ${it.stackTraceToString()}" }
         }
     }
@@ -641,6 +655,7 @@ class VideoPlayerV3ViewModel(
             withContext(Dispatchers.Main) { this@VideoPlayerV3ViewModel.videoShot = videoShot }
             logger.fInfo { "Load video shot success" }
         }.onFailure {
+            if (it is CancellationException) throw it
             logger.fWarn { "Load video shot failed: ${it.stackTraceToString()}" }
         }
     }
@@ -712,7 +727,9 @@ class VideoPlayerV3ViewModel(
     }
 
     override fun onCleared() {
-        super.onCleared()
+        loadVideoJob?.cancel()
+        subtitleJob?.cancel()
+        runCatching { subtitleHttpClient.close() }
         runCatching { videoPlayer?.pause() }
         runCatching { videoPlayer?.release() }
         runCatching { danmakuPlayer?.pause() }
@@ -723,5 +740,6 @@ class VideoPlayerV3ViewModel(
         danmakuMasks.clear()
         videoShot = null
         currentSubtitleData.clear()
+        super.onCleared()
     }
 }
