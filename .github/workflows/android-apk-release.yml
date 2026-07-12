@@ -63,32 +63,50 @@ jobs:
           java-version: 21
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
       - name: Check release signing secrets
+        id: signing
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
+          publish_release=false
+          if [[ "${{ github.event_name }}" == "release" || "${{ github.ref }}" == refs/tags/* ]]; then
+            publish_release=true
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${RELEASE_TAG}" ]]; then
+            publish_release=true
+          fi
+
           missing=0
           for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
             if [[ -z "${!name}" ]]; then
-              echo "Missing required signing secret: ${name}"
+              echo "Missing signing secret: ${name}"
               missing=1
             fi
           done
-          if [[ "${missing}" -ne 0 ]]; then
-            echo "Release APKs must be signed. Add the missing secrets under Settings > Secrets and variables > Actions."
-            exit 1
+
+          if [[ "${missing}" -eq 0 ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Release signing secrets are available."
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            if [[ "${publish_release}" == "true" ]]; then
+              echo "Release publication requires signed APKs. Add the missing secrets under Settings > Secrets and variables > Actions."
+              exit 1
+            fi
+            echo "Signing secrets are unavailable; this validation build will produce unsigned workflow artifacts and will not publish a release."
           fi
 
       - name: Configure release signing
+        if: steps.signing.outputs.available == 'true'
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -128,11 +146,13 @@ jobs:
           ls -lh release-apks
 
       - name: Verify APK signatures
+        if: steps.signing.outputs.available == 'true'
         shell: bash
         run: |
+          APKSIGNER="${ANDROID_HOME}/build-tools/$(ls "${ANDROID_HOME}/build-tools" | sort -V | tail -n 1)/apksigner"
           for apk in release-apks/*.apk; do
             echo "Verifying ${apk}"
-            ${ANDROID_HOME}/build-tools/$(ls ${ANDROID_HOME}/build-tools | sort -V | tail -n 1)/apksigner verify --print-certs "${apk}"
+            "${APKSIGNER}" verify --print-certs "${apk}"
           done
 
       - name: Upload APK artifacts
