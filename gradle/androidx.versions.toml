@@ -12,7 +12,7 @@ core = "1.16.0"
 core-splashscreen = "1.0.1"
 dataStore = "1.1.7"
 lifecycle = "2.9.2"
-media3 = "1.8.0-rc01"
+media3 = "1.10.1"
 navigation = "2.9.2"
 room = "2.7.2"
 webkit = "1.14.0"
@@ -21,7 +21,7 @@ webkit = "1.14.0"
 # https://developer.android.com/jetpack/androidx/releases/activity
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity" }
 
-# https://developer.android.com/jetpack/compose/layout
+# https://developer.android.com/jetpack/androidx/releases/constraintlayout
 compose-constraintlayout = { module = "androidx.constraintlayout:constraintlayout-compose", version.ref = "compose-constraintlayout" }
 
 # https://developer.android.com/jetpack/androidx/releases/tv
