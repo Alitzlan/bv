@@ -70,7 +70,8 @@ fun PlayStateTips(
         if (videoPlayerStateData.isError) {
             PlayErrorTip(
                 modifier = Modifier.align(Alignment.Center),
-                exception = videoPlayerStateData.exception!!
+                exception = videoPlayerStateData.exception
+                    ?: Exception("Unknown playback error")
             )
         }
         if (videoPlayerPaymentData.needPay) {
