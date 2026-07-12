@@ -48,6 +48,7 @@ class ExoMediaPlayer(
     private var currentAudioUrl: String? = null
     private var automaticRecoveryAttempts = 0
     private var isRecovering = false
+    private var isReleased = false
 
     @OptIn(UnstableApi::class)
     private val dataSourceFactory =
@@ -64,6 +65,7 @@ class ExoMediaPlayer(
     override fun initPlayer() {
         if (mPlayer != null) return
 
+        isReleased = false
         val renderersFactory = DefaultRenderersFactory(context).apply {
             setExtensionRendererMode(
                 when (options.enableFfmpegAudioRenderer) {
@@ -93,6 +95,10 @@ class ExoMediaPlayer(
 
     @OptIn(UnstableApi::class)
     override fun playUrl(videoUrl: String?, audioUrl: String?) {
+        // A late network callback can arrive after the Activity/ViewModel has released the player.
+        // Do not recreate native decoders after the playback screen has already gone away.
+        if (isReleased) return
+
         val replacingExistingStream =
             currentVideoUrl != null || currentAudioUrl != null || mMediaSource != null
 
@@ -131,6 +137,7 @@ class ExoMediaPlayer(
 
     @OptIn(UnstableApi::class)
     override fun prepare() {
+        if (isReleased) return
         val player = checkNotNull(mPlayer) { "Player has been released" }
         val mediaSource = checkNotNull(mMediaSource) { "Media source has not been configured" }
         player.setMediaSource(mediaSource)
@@ -138,7 +145,7 @@ class ExoMediaPlayer(
     }
 
     override fun start() {
-        mPlayer?.play()
+        if (!isReleased) mPlayer?.play()
     }
 
     override fun pause() {
@@ -154,17 +161,19 @@ class ExoMediaPlayer(
         currentAudioUrl = null
         automaticRecoveryAttempts = 0
         isRecovering = false
+        isReleased = false
         recreateInternalPlayer()
     }
 
     override val isPlaying: Boolean
-        get() = mPlayer?.isPlaying == true
+        get() = !isReleased && mPlayer?.isPlaying == true
 
     override fun seekTo(time: Long) {
-        mPlayer?.seekTo(time)
+        if (!isReleased) mPlayer?.seekTo(time)
     }
 
     override fun release() {
+        isReleased = true
         releaseInternalPlayer()
         currentVideoUrl = null
         currentAudioUrl = null
@@ -198,18 +207,19 @@ class ExoMediaPlayer(
         get() = mPlayer?.bufferedPercentage ?: 0
 
     override fun setOptions() {
-        mPlayer?.playWhenReady = true
+        if (!isReleased) mPlayer?.playWhenReady = true
     }
 
     override var speed: Float
         get() = mPlayer?.playbackParameters?.speed ?: 1f
         set(value) {
-            mPlayer?.setPlaybackSpeed(value)
+            if (!isReleased) mPlayer?.setPlaybackSpeed(value)
         }
     override val tcpSpeed: Long
         get() = 0L
 
     override fun onPlaybackStateChanged(playbackState: Int) {
+        if (isReleased) return
         when (playbackState) {
             Player.STATE_IDLE -> mPlayerEventListener?.onIdle()
             Player.STATE_BUFFERING -> mPlayerEventListener?.onBuffering()
@@ -222,6 +232,7 @@ class ExoMediaPlayer(
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (isReleased) return
         if (isPlaying) {
             isRecovering = false
             mPlayerEventListener?.onPlay()
@@ -231,11 +242,11 @@ class ExoMediaPlayer(
     }
 
     override fun onSeekBackIncrementChanged(seekBackIncrementMs: Long) {
-        mPlayerEventListener?.onSeekBack(seekBackIncrementMs)
+        if (!isReleased) mPlayerEventListener?.onSeekBack(seekBackIncrementMs)
     }
 
     override fun onSeekForwardIncrementChanged(seekForwardIncrementMs: Long) {
-        mPlayerEventListener?.onSeekForward(seekForwardIncrementMs)
+        if (!isReleased) mPlayerEventListener?.onSeekForward(seekForwardIncrementMs)
     }
 
     override val debugInfo: String
@@ -269,6 +280,7 @@ class ExoMediaPlayer(
         get() = mPlayer?.videoSize?.height ?: 0
 
     override fun onPlayerError(error: PlaybackException) {
+        if (isReleased) return
         if (isInvalidNalLengthError(error) && tryRecoverFromMalformedNal()) {
             return
         }
@@ -290,7 +302,7 @@ class ExoMediaPlayer(
     }
 
     private fun tryRecoverFromMalformedNal(): Boolean {
-        if (automaticRecoveryAttempts >= MAX_AUTOMATIC_RECOVERY_ATTEMPTS) {
+        if (isReleased || automaticRecoveryAttempts >= MAX_AUTOMATIC_RECOVERY_ATTEMPTS) {
             return false
         }
         val videoUrl = currentVideoUrl
