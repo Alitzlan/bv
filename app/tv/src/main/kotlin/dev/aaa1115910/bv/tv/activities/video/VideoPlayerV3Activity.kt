@@ -80,8 +80,15 @@ class VideoPlayerV3Activity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // Release native decoder, Surface and danmaku resources before the Activity/View tree is
+        // torn down. All release implementations are idempotent, so the ViewModel/onDispose cleanup
+        // can safely run afterward as a fallback.
+        runCatching { playerViewModel.videoPlayer?.pause() }
+        runCatching { playerViewModel.videoPlayer?.release() }
+        runCatching { playerViewModel.danmakuPlayer?.pause() }
+        runCatching { playerViewModel.danmakuPlayer?.release() }
+        super.onDestroy()
     }
 
     override fun onPause() {
