@@ -9,7 +9,25 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 object OkHttpUtil {
+    @Volatile
+    private var sharedClient: OkHttpClient? = null
+
+    /**
+     * Builds the custom-trust playback client once and reuses its dispatcher and connection pool.
+     * Creating one client per player leaves multiple pools and threads alive while users move
+     * through videos, which is particularly expensive on low-memory Android TV devices.
+     */
     fun generateCustomSslOkHttpClient(context: Context): OkHttpClient {
+        sharedClient?.let { return it }
+
+        return synchronized(this) {
+            sharedClient ?: buildCustomSslOkHttpClient(context.applicationContext).also {
+                sharedClient = it
+            }
+        }
+    }
+
+    private fun buildCustomSslOkHttpClient(context: Context): OkHttpClient {
         val certificateFactory = CertificateFactory.getInstance("X.509")
         val customCaMap = mapOf(
             "custom:r5" to "GlobalSign ECC Root CA R5.crt"
@@ -22,31 +40,28 @@ object OkHttpUtil {
         val customKeyStore = KeyStore.getInstance(keyStoreType).apply {
             load(null, null)
 
-            systemKeyStore.aliases().toList().forEach {
-                setCertificateEntry(it, systemKeyStore.getCertificate(it))
+            systemKeyStore.aliases().toList().forEach { alias ->
+                setCertificateEntry(alias, systemKeyStore.getCertificate(alias))
             }
             customCaMap.forEach { (alias, caFilename) ->
-                val certificateInputStream = context.assets.open(caFilename)
-                val certificate = certificateFactory.generateCertificate(certificateInputStream)
-                setCertificateEntry(alias, certificate)
+                context.assets.open(caFilename).use { certificateInputStream ->
+                    val certificate = certificateFactory.generateCertificate(certificateInputStream)
+                    setCertificateEntry(alias, certificate)
+                }
             }
         }
 
-        val tmfAlgorithm: String = TrustManagerFactory.getDefaultAlgorithm()
-        val trustManagerFactory: TrustManagerFactory =
-            TrustManagerFactory.getInstance(tmfAlgorithm).apply {
-                init(customKeyStore)
-            }
+        val trustManagerFactory = TrustManagerFactory
+            .getInstance(TrustManagerFactory.getDefaultAlgorithm())
+            .apply { init(customKeyStore) }
+        val trustManager = trustManagerFactory.trustManagers[0] as X509TrustManager
 
-        val sslContext: SSLContext = SSLContext.getInstance("TLS").apply {
-            init(null, trustManagerFactory.trustManagers, null)
+        val sslContext = SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf(trustManager), null)
         }
 
         return OkHttpClient.Builder()
-            .sslSocketFactory(
-                sslContext.socketFactory,
-                trustManagerFactory.trustManagers[0] as X509TrustManager
-            )
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
             .build()
     }
 }
