@@ -3,6 +3,7 @@ package dev.aaa1115910.bv.player.tv.controller
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -23,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -34,6 +36,8 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import androidx.tv.material3.darkColorScheme
+import dev.aaa1115910.bv.player.entity.LocalVideoPlayerConfigData
+import dev.aaa1115910.bv.player.entity.LocalVideoPlayerDebugInfoData
 import dev.aaa1115910.bv.player.entity.LocalVideoPlayerPaymentData
 import dev.aaa1115910.bv.player.entity.LocalVideoPlayerStateData
 import kotlinx.coroutines.Dispatchers
@@ -49,10 +53,26 @@ fun PlayStateTips(
 ) {
     val videoPlayerStateData = LocalVideoPlayerStateData.current
     val videoPlayerPaymentData = LocalVideoPlayerPaymentData.current
+    val videoPlayerConfigData = LocalVideoPlayerConfigData.current
+    val videoPlayerDebugInfoData = LocalVideoPlayerDebugInfoData.current
 
     Box(
         modifier = modifier.fillMaxSize()
     ) {
+        if (videoPlayerConfigData.showPlayerDebugInfo) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .clip(MaterialTheme.shapes.medium)
+                    .background(Color.Black.copy(alpha = 0.3f))
+            ) {
+                Text(
+                    modifier = Modifier.padding(8.dp),
+                    text = videoPlayerDebugInfoData.debugInfo
+                )
+            }
+        }
         if (!videoPlayerStateData.isPlaying && !videoPlayerStateData.isBuffering && !videoPlayerStateData.isError) {
             PauseIcon(
                 modifier = Modifier
