@@ -22,11 +22,12 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import dev.aaa1115910.bv.BuildConfig
 import dev.aaa1115910.bv.R
+import dev.aaa1115910.bv.tv.activities.settings.LogsActivity
 import dev.aaa1115910.bv.tv.component.settings.SettingListItem
 import dev.aaa1115910.bv.tv.component.settings.SettingSwitchListItem
-import dev.aaa1115910.bv.tv.activities.settings.LogsActivity
 import dev.aaa1115910.bv.tv.screens.settings.SettingsMenuNavItem
 import dev.aaa1115910.bv.util.FirebaseUtil
+import dev.aaa1115910.bv.util.PlayerDebugPreferences
 import dev.aaa1115910.bv.util.Prefs
 
 @Composable
@@ -36,6 +37,9 @@ fun OtherSetting(
     val context = LocalContext.current
 
     var showFps by remember { mutableStateOf(Prefs.showFps) }
+    var showPlayerDebugInfo by remember {
+        mutableStateOf(PlayerDebugPreferences.showPlayerDebugInfo)
+    }
     var updateAlpha by remember { mutableStateOf(Prefs.updateAlpha) }
     var enableFfmpegAudioRenderer by remember { mutableStateOf(Prefs.enableFfmpegAudioRenderer) }
 
@@ -75,6 +79,17 @@ fun OtherSetting(
                     onCheckedChange = {
                         showFps = it
                         Prefs.showFps = it
+                    }
+                )
+            }
+            item {
+                SettingSwitchListItem(
+                    title = stringResource(R.string.settings_other_player_debug_info_title),
+                    supportText = stringResource(R.string.settings_other_player_debug_info_text),
+                    checked = showPlayerDebugInfo,
+                    onCheckedChange = {
+                        showPlayerDebugInfo = it
+                        PlayerDebugPreferences.showPlayerDebugInfo = it
                     }
                 )
             }
