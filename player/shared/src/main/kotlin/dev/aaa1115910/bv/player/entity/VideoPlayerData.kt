@@ -89,6 +89,7 @@ data class VideoPlayerConfigData(
     val currentSubtitleBottomPadding: Dp = 12.dp,
     val currentPlayMode: PlayMode = PlayMode.Sequential,
     val incognitoMode: Boolean = false,
+    val showPlayerDebugInfo: Boolean = false,
 )
 
 data class VideoPlayerDanmakuMasksData(
