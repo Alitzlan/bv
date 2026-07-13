@@ -16,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -27,14 +26,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.dp
-import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import dev.aaa1115910.biliapi.entity.video.Subtitle
 import dev.aaa1115910.bv.player.AbstractVideoPlayer
 import dev.aaa1115910.bv.player.entity.Audio
 import dev.aaa1115910.bv.player.entity.DanmakuType
-import dev.aaa1115910.bv.player.entity.LocalVideoPlayerDebugInfoData
 import dev.aaa1115910.bv.player.entity.LocalVideoPlayerHistoryData
 import dev.aaa1115910.bv.player.entity.LocalVideoPlayerSeekData
 import dev.aaa1115910.bv.player.entity.LocalVideoPlayerStateData
@@ -44,7 +40,6 @@ import dev.aaa1115910.bv.player.entity.VideoAspectRatio
 import dev.aaa1115910.bv.player.entity.VideoCodec
 import dev.aaa1115910.bv.player.entity.VideoListItem
 import dev.aaa1115910.bv.player.seekbar.SeekMoveState
-import dev.aaa1115910.bv.player.shared.BuildConfig
 import dev.aaa1115910.bv.player.shared.R
 import dev.aaa1115910.bv.util.countDownTimer
 import dev.aaa1115910.bv.util.fInfo
@@ -88,7 +83,6 @@ fun VideoPlayerController(
     val videoPlayerSeekData = LocalVideoPlayerSeekData.current
     val videoPlayerHistoryData = LocalVideoPlayerHistoryData.current
     val videoPlayerStateData = LocalVideoPlayerStateData.current
-    val videoPlayerDebugInfoData = LocalVideoPlayerDebugInfoData.current
     val logger = KotlinLogging.logger {}
 
     var showListController by remember { mutableStateOf(false) }
@@ -315,20 +309,6 @@ fun VideoPlayerController(
             }
     ) {
         content()
-        if (BuildConfig.DEBUG) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(8.dp)
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(Color.Black.copy(alpha = 0.3f))
-            ) {
-                Text(
-                    modifier = Modifier.padding(8.dp),
-                    text = videoPlayerDebugInfoData.debugInfo
-                )
-            }
-        }
         BottomSubtitle()
         SkipTips()
         PlayStateTips()
@@ -365,6 +345,3 @@ fun VideoPlayerController(
         )
     }
 }
-
-
-
