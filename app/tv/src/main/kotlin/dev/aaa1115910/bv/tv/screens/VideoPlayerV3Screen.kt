@@ -27,6 +27,7 @@ import dev.aaa1115910.bv.player.entity.VideoPlayerSeekThumbData
 import dev.aaa1115910.bv.player.entity.VideoPlayerVideoInfoData
 import dev.aaa1115910.bv.player.entity.VideoPlayerVideoShotData
 import dev.aaa1115910.bv.player.tv.BvPlayer
+import dev.aaa1115910.bv.util.PlayerDebugPreferences
 import dev.aaa1115910.bv.util.Prefs
 import dev.aaa1115910.bv.util.swapList
 import dev.aaa1115910.bv.viewmodel.VideoPlayerV3ViewModel
@@ -95,6 +96,7 @@ fun VideoPlayerV3Screen(
             currentSubtitleBottomPadding = playerViewModel.currentSubtitleBottomPadding,
             currentPlayMode = playerViewModel.currentPlayMode,
             incognitoMode = Prefs.incognitoMode,
+            showPlayerDebugInfo = PlayerDebugPreferences.showPlayerDebugInfo,
         ),
         LocalVideoPlayerDanmakuMasksData provides VideoPlayerDanmakuMasksData(
             danmakuMasks = playerViewModel.danmakuMasks,
