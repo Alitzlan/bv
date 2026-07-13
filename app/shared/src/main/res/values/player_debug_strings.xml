@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<resources>
+    <string name="settings_other_player_debug_info_title">播放器调试信息</string>
+    <string name="settings_other_player_debug_info_text">在视频左上角显示播放器、缓冲、分辨率和解码器信息</string>
+</resources>
